@@ -2,6 +2,8 @@
 #include <string.h>
 #include <ctype.h>
 
+// Definição dos tokens
+
 typedef enum {
     FUNCTION,
     MAIN,
@@ -40,6 +42,8 @@ typedef enum {
     FMT_STRING
 } TokenType;
 
+// Token
+
 typedef struct {
     TokenType type;
     char lexeme[128];
@@ -47,6 +51,8 @@ typedef struct {
 } Token;
 
 static int line = 1;
+
+// Identificador de palavra reservada
 
 TokenType identificadorToken(const char* str) {
     if (strcmp(str, "function") == 0) return FUNCTION;
@@ -61,23 +67,22 @@ TokenType identificadorToken(const char* str) {
     if (strcmp(str, "println") == 0) return PRINTLN;
     if (strcmp(str, "return") == 0) return RETURN;
 
-    // Se não for uma palavra reservada, retorna ID
     return ID;
 }
 
-Token makeToken(TokenType type, const char* lexeme, int line) {
+// Função cria token
+
+Token makeToken(TokenType type, const char* lexeme) {
     Token token;
     
     token.type = type;
-    // Garantir que o lexema não exceda o tamanho do buffer 128
     strncpy(token.lexeme, lexeme, sizeof(token.lexeme) - 1);
-    // Garantir terminação nula
     token.lexeme[sizeof(token.lexeme) - 1] = '\0';
     token.line = line;
     return token;
 }
 
-Token lerIdenficador(FILE *file, int first, int line) {
+Token lerIdenficador(FILE *file, int first) {
     char lexema[128];
     int c;
     int i = 0;
@@ -96,5 +101,112 @@ Token lerIdenficador(FILE *file, int first, int line) {
     }
 
     TokenType type = identificadorToken(lexema);
-    return makeToken(type, lexema, line);
+    return makeToken(type, lexema);
+}
+
+Token lerNumero(FILE *file, int first) {
+    char lexema[128];
+    int c;
+    int i = 0;
+    int pontoDecimal = 0;
+
+    lexema[i++] = (char)first;
+
+    while ((c = fgetc(file)) != EOF && (isdigit(c) || c == '.')) {
+        if (c == '.') {
+            if (pontoDecimal) {
+                break;
+            }
+            pontoDecimal = 1;
+        }
+        if (i < sizeof(lexema) - 1) {
+            lexema[i++] = (char)c;
+        }
+    }
+
+    if(c != EOF) {
+        ungetc(c, file);
+    }
+
+    TokenType type = pontoDecimal ? FLOAT_CONST : INT_CONST;
+    return makeToken(type, lexema);
+}
+
+Token lerString(FILE *file){
+    char lexema[128];
+    int c;
+    int i = 0;
+
+    while ((c = fgetc(file)) != EOF && c != '"' && c != '\n') {
+        if (i < sizeof(lexema) - 1) {
+            lexema[i++] = (char)c;
+        }
+    }
+
+    if(c != EOF) {
+        ungetc(c, file);
+    }
+
+    lexema[i] = '\0';
+    return makeToken(FMT_STRING, lexema);
+}
+
+Token lerChar(FILE *file){
+    char lexema[128];
+    int c;
+    int i = 0;
+
+    c = fgetc(file);
+    if (c == EOF || c == '\n' || c == '\'') {
+        return makeToken(CHAR_LITERAL, "");
+    }
+
+    lexema[i++] = (char)c;
+
+    c = fgetc(file);
+    if(c != EOF) {
+        ungetc(c, file);
+    }
+
+    lexema[i] = '\0';
+    return makeToken(CHAR_LITERAL, lexema);
+}
+
+Token nextToken(FILE *file) {
+    int c;
+    char lexema[128];
+    int i = 0;
+
+    while ((c = fgetc(file)) != EOF) {
+        
+        if(c == ' ' || c == '\t' || c == '\r') {
+            continue;
+        }
+        
+        if (c == '\n') {
+            line++;
+            continue;
+        }
+
+        if (isalpha(c)) {
+            return lerIdenficador(file, c);
+        }
+
+        if (isdigit(c)) {
+            return lerNumero(file, c);
+        }
+
+        if (c == '"') {
+            return lerString(file);
+        }
+
+        if (c == "'"){
+            return lerChar(file);
+        }
+
+        // Tratar operadores e símbolos
+        // ... (resto da implementação)
+    }
+
+    return makeToken(EOF, "");
 }
