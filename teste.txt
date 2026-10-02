@@ -1,0 +1,7 @@
+fn (int a,int b){
+    if(a != c){
+        a = 2*2.2
+    }else{
+        b = "nao deu"
+    }
+}
