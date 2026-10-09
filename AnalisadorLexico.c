@@ -115,6 +115,7 @@ Token lerNumero(FILE *file, int first) {
     lexema[i++] = (char)first;
 
     while ((c = fgetc(file)) != EOF && (isdigit(c) || c == '.')) {
+
         if (c == '.') {
             if (pontoDecimal) {
                 break;
@@ -125,6 +126,13 @@ Token lerNumero(FILE *file, int first) {
             lexema[i++] = (char)c;
         }
     }
+
+    if(isalpha(c)) {
+            do {
+                c = fgetc(file);
+            } while (c == ' ' || c == '\t' || c == '\r');
+            return makeToken(ERROR, "Número seguido de letra");
+        }
 
     if(c != EOF) {
         ungetc(c, file);
@@ -141,13 +149,21 @@ Token lerString(FILE *file){
     int c;
     int i = 0;
 
-    while ((c = fgetc(file)) != EOF && c != '"' && c != '\n') {
+    while ((c = fgetc(file)) != EOF && c != '"') {
+
+        if(c == '\n') {
+            line++;
+            return makeToken(ERROR, "String não fechada");
+        }
+
         if (i < sizeof(lexema) - 1) {
             lexema[i++] = (char)c;
         }
     }
 
-    if(c != EOF || c == '"') {
+    c = fgetc(file);
+
+    if(c != EOF) {
         ungetc(c, file);
     }
 
@@ -161,7 +177,12 @@ Token lerChar(FILE *file){
     int i = 0;
 
     c = fgetc(file);
-    if (c == EOF || c == '\n' || c == '\'') {
+    if(c == '\n'){
+        line++;
+        return makeToken(ERROR, "Char não fechado");
+    }
+
+    if (c == EOF || c == '\'') {
         return makeToken(CHAR_LITERAL, "");
     }
 
