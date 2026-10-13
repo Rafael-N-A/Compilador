@@ -95,12 +95,12 @@ Token lerIdenficador(FILE *file, int first) {
         }
     }
 
+    lexema[i] = '\0';
+
     // Lookahed
     if(c != EOF) {
         ungetc(c, file);
     }
-
-    lexema[i] = '\0';
 
     TokenType type = identificadorToken(lexema);
     return makeToken(type, lexema);
@@ -127,18 +127,26 @@ Token lerNumero(FILE *file, int first) {
         }
     }
 
+    lexema[i] = '\0';
+
     if(isalpha(c)) {
             do {
                 c = fgetc(file);
             } while (c == ' ' || c == '\t' || c == '\r');
+            ungetc(c, file);
             return makeToken(ERROR, "Número seguido de letra");
         }
+
+
+    if(lexema[i - 1] == '.') {
+        ungetc(c, file);
+        return makeToken(ERROR, "Número com ponto decimal no final");
+    }
+
 
     if(c != EOF) {
         ungetc(c, file);
     }
-
-    lexema[i] = '\0';
 
     TokenType type = pontoDecimal ? FLOAT_CONST : INT_CONST;
     return makeToken(type, lexema);
@@ -161,13 +169,14 @@ Token lerString(FILE *file){
         }
     }
 
+    lexema[i] = '\0';
+
     c = fgetc(file);
 
     if(c != EOF) {
         ungetc(c, file);
     }
 
-    lexema[i] = '\0';
     return makeToken(FMT_STRING, lexema);
 }
 
