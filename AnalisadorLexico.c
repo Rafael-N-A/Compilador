@@ -368,12 +368,18 @@ int main(){
     FILE *file = fopen("teste.txt", "r");
     Token token;
     
+    Token vetorTokens[1000];
+    int index = 0;
+
     while((token = nextToken(file)).type != EOF) {
+        vetorTokens[index++] = token;
         printf("Token: %s, Lexema: %s, Linha: %d\n",
         nomeToken(token.type),
         token.lexeme,
         token.line);
     }
+
+    printf("Total de tokens: %d\n", index);
 
     fclose(file);
     return 0;
