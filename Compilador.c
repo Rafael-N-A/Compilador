@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 
 /*
 ##########################################################
@@ -386,32 +387,201 @@ const char* nomeToken(TokenType t) {
 ##########################################################
 */
 
-void casar(TokenType esperado, Token* token) {
-    if (token->type == esperado) {
-        printf("Token esperado: %s, Token recebido: %s\n", nomeToken(esperado), nomeToken(token->type));
+static Token *tokens = NULL;      // vetor de tokens
+static int totalTokens = 0;       // quantidade de tokens no vetor
+static int atual = 0;             // token atual
+ 
+static FILE *saidaErros = NULL;   // arquivo onde o erro sintático é gravado
+ 
+
+void iniciarParser(Token *vetor, int total, FILE *arquivoErros) {
+    tokens = vetor;
+    totalTokens = total;
+    atual = 0;
+    saidaErros = arquivoErros;
+}
+ 
+
+Token *tokenAtual(void) {
+    return &tokens[atual];
+}
+ 
+Token *proximoToken(void) {
+    if (tokens[atual].type != End_Of_File && atual < totalTokens - 1) {
+        atual++;
+    }
+    return &tokens[atual];
+}
+ 
+
+void erroSintatico(const char *esperado) {
+    Token *t = tokenAtual();
+    char mensagem[512];
+ 
+    if (t->type == End_Of_File) {
+        snprintf(mensagem, sizeof(mensagem),
+                 "Erro sintático na linha %d: esperado %s, mas o arquivo terminou",
+                 t->line, esperado);
     } else {
-        fprintf(stderr, "Erro sintático na linha %d: token esperado '%s', mas recebeu '%s'\n",
-                token->line, nomeToken(esperado), nomeToken(token->type));
+        snprintf(mensagem, sizeof(mensagem),
+                 "Erro sintático na linha %d: esperado %s, mas encontrado %s '%s'",
+                 t->line, esperado, nomeToken(t->type), t->lexeme);
+    }
+ 
+    if (saidaErros) {
+        fprintf(saidaErros, "%s\n", mensagem);
+        fclose(saidaErros);
+    }
+    fprintf(stderr, "%s\nCompilação interrompida.\n", mensagem);
+    exit(1);
+}
+
+Token *casar(TokenType esperado) {
+    Token *t = tokenAtual();
+ 
+    if (t->type != esperado) {
+        erroSintatico(nomeToken(esperado));
+    }
+ 
+    proximoToken();
+    return t;
+}
+
+// Descida Recursiva
+
+void programa(void){
+    if(tokenAtual()->type == FUNCTION) {
+        funcao();
+        funcaoseq();
+    }else{
+        erroSintatico("FUNCTION");
     }
 }
+
+void funcao(void){
+    casar(FUNCTION);
+    if(tokenAtual()->type == ID || tokenAtual()->type == MAIN){
+        nomefuncao();
+    }
+    casar(LBRACKET);
+    if(tokenAtual()->type == ID) {
+        listaparams();
+    }
+    casar(RBRACKET);
+    if(tokenAtual()->type == ARROW) {
+        TipoRetornoFuncao();
+    }
+    if(tokenAtual()->type == LBRACE) {
+        Bloco();
+    }else{
+        erroSintatico("LBRACE");
+    }
+}
+
+void listaparams(void){
+    casar(ID);
+    casar(COLON);
+    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
+        type();
+    }else{
+        erroSintatico("INT, FLOAT ou CHAR");
+    }
+    if(tokenAtual()->type == COMMA) {
+        listaparams2();
+    }
+}
+
+void listaparams2(void){
+    casar(COMMA);
+    casar(ID);
+    casar(COLON);
+    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
+        type();
+    }else{
+        erroSintatico("INT, FLOAT ou CHAR");
+    }
+    if(tokenAtual()->type == COMMA) {
+        listaparams2();
+    }
+}
+
+void type(void){
+    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
+        casar(tokenAtual()->type);
+    }else{
+        erroSintatico("INT, FLOAT ou CHAR");
+    }
+}
+
+void nomefuncao(void){
+    if(tokenAtual()->type == ID) {
+        casar(ID);
+    }else if(tokenAtual()->type == MAIN) {
+        casar(MAIN);
+    }else{
+        erroSintatico("ID ou MAIN");
+    }
+}
+
+void funcaoseq(void){
+    if(tokenAtual()->type == FUNCTION) {
+        funcao();
+        funcaoseq();
+    }
+}
+
+/*
+##########################################################
+    MAIN
+##########################################################
+*/
+
+#define MAX_TOKENS 1000
 
 int main(){
     FILE *file = fopen("teste.txt", "r");
     Token token;
-    
-    Token vetorTokens[1000];
+ 
+    Token vetorTokens[MAX_TOKENS];
     int index = 0;
-
-    while((token = nextToken(file)).type != End_Of_File) {
+ 
+    while((token = nextToken(file)).type != End_Of_File && index < MAX_TOKENS - 1) {
         vetorTokens[index++] = token;
         printf("Token: %s, Lexema: %s, Linha: %d\n",
         nomeToken(token.type),
         token.lexeme,
         token.line);
     }
-
+ 
     printf("Total de tokens: %d\n", index);
+ 
+    if (token.type != End_Of_File) {
+        fprintf(stderr, "Aviso: limite de %d tokens atingido, o restante do arquivo foi ignorado\n", MAX_TOKENS - 1);
+    }
+    vetorTokens[index++] = makeToken(End_Of_File, "");
 
     fclose(file);
+
+    int numErrosLexicos = 0;
+    for (int i = 0; i < index; i++) {
+        if (vetorTokens[i].type == ERROR) {
+            numErrosLexicos++;
+        }
+    }
+    if (numErrosLexicos > 0) {
+        fprintf(stderr, "Foram encontrados %d erro(s) léxico(s). Compilação interrompida.\n", numErrosLexicos);
+        return 1;
+    }
+ 
+    // Análise sintática
+    FILE *arquivoErros = fopen("saida_erros_sintaticos.txt", "w");
+    iniciarParser(vetorTokens, index, arquivoErros);
+
+ 
+    if (arquivoErros) {
+        fprintf(arquivoErros, "Nenhum erro sintático encontrado.\n");
+        fclose(arquivoErros);
+    }
+ 
     return 0;
 }
