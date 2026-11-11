@@ -2,7 +2,11 @@
 #include <string.h>
 #include <ctype.h>
 
-// Definição dos tokens
+/*
+##########################################################
+    ANALISADOR LÉXICO
+##########################################################
+*/
 
 typedef enum {
     FUNCTION,
@@ -40,6 +44,7 @@ typedef enum {
     FLOAT_CONST,
     CHAR_LITERAL,
     FMT_STRING,
+    End_Of_File,
     ERROR
 } TokenType;
 
@@ -186,16 +191,27 @@ Token lerChar(FILE *file){
     int i = 0;
 
     c = fgetc(file);
-    if(c == '\n'){
+    if(c == '\n' || c == EOF) {
         line++;
         return makeToken(ERROR, "Char não fechado");
     }
 
-    if (c == EOF || c == '\'') {
+    if (c == '\'') {
+        fgetc(file); // Consumir o '
         return makeToken(CHAR_LITERAL, "");
     }
 
     lexema[i++] = (char)c;
+
+    // Consumir o '
+    if((c = fgetc(file)) != '\'') {
+        if(c == '\n') {
+            line++;
+            return makeToken(ERROR, "Char não fechado");
+        }
+        ungetc(c, file);
+        return makeToken(ERROR, "Char não fechado");
+    }
 
     c = fgetc(file);
     if(c != EOF) {
@@ -319,7 +335,7 @@ Token nextToken(FILE *file) {
         
     }
 
-    return makeToken(EOF, "");
+    return makeToken(End_Of_File, "");
 }
 
 const char* nomeToken(TokenType t) {
@@ -364,6 +380,21 @@ const char* nomeToken(TokenType t) {
     }
 }
 
+/*
+##########################################################
+    ANALISADOR SINTÁTICO
+##########################################################
+*/
+
+void casar(TokenType esperado, Token* token) {
+    if (token->type == esperado) {
+        printf("Token esperado: %s, Token recebido: %s\n", nomeToken(esperado), nomeToken(token->type));
+    } else {
+        fprintf(stderr, "Erro sintático na linha %d: token esperado '%s', mas recebeu '%s'\n",
+                token->line, nomeToken(esperado), nomeToken(token->type));
+    }
+}
+
 int main(){
     FILE *file = fopen("teste.txt", "r");
     Token token;
@@ -371,7 +402,7 @@ int main(){
     Token vetorTokens[1000];
     int index = 0;
 
-    while((token = nextToken(file)).type != EOF) {
+    while((token = nextToken(file)).type != End_Of_File) {
         vetorTokens[index++] = token;
         printf("Token: %s, Lexema: %s, Linha: %d\n",
         nomeToken(token.type),
