@@ -1,8 +1,15 @@
-fn (int a,int b){@
-    if(a != c){
-        a = 2.2
-        float =  a
-    }else{
-        b = "nao deu"
+fn maior(a: int, b: int) -> int {
+    let m: int;
+    m = a;
+    if b > m {
+        m = b;
     }
+    return m;
+}
+
+fn main() {
+    let x, y: int;
+    x = 10;
+    y = 20;
+    println("{}", maior(x,y));
 }

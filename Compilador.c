@@ -449,6 +449,70 @@ Token *casar(TokenType esperado) {
 
 // Descida Recursiva
 
+// Declaração das funções correspondentes a cada produção da gramática
+
+void programa(void);
+void funcaoseq(void);
+void funcao(void);
+void nomefuncao(void);
+void listaparams(void);
+void listaparams2(void);
+void tiporetornofuncao(void);
+void bloco(void);
+void sequencia(void);
+void declaracao(void);
+void varlist(void);
+void varlist2(void);
+void type(void);
+void comando(void);
+void atribuicaoouchamada(void);
+void comandose(void);
+void comandosenao(void);
+void expr(void);
+void expropc(void);
+void opigual(void);
+void rel(void);
+void relopc(void);
+void oprel(void);
+void adicao(void);
+void adicaoopc(void);
+void opadicao(void);
+void termo(void);
+void termoopc(void);
+void opmult(void);
+void fator(void);
+void chamadafuncao(void);
+void listaargs(void);
+void listaargs2(void);
+void arg(void);
+
+// Mensagens de erro para reuso
+#define ESPERADO_EXPR "ID, INT_CONST, FLOAT_CONST, CHAR_LITERAL ou LBRACKET"
+#define ESPERADO_ARG  "ID, INT_CONST, FLOAT_CONST ou CHAR_LITERAL"
+
+// Conjunto First(Comando) = { ID, IF, LBRACE, WHILE, PRINTLN, RETURN }
+// Para reuso
+int firstComando(void){
+    TokenType t = tokenAtual()->type;
+    return t == ID || t == IF || t == LBRACE || t == WHILE || t == PRINTLN || t == RETURN;
+}
+
+// Conjunto First(Expr) = First(Rel) = First(Adicao) = First(Termo) = First(Fator)
+//             = { ID, INT_CONST, FLOAT_CONST, CHAR_LITERAL, LBRACKET }
+// Para reuso
+int firstExpr(void){
+    TokenType t = tokenAtual()->type;
+    return t == ID || t == INT_CONST || t == FLOAT_CONST || t == CHAR_LITERAL || t == LBRACKET;
+}
+
+// Conjunto First(Arg) = { ID, INT_CONST, FLOAT_CONST, CHAR_LITERAL }
+// Para reuso
+int firstArg(void){
+    TokenType t = tokenAtual()->type;
+    return t == ID || t == INT_CONST || t == FLOAT_CONST || t == CHAR_LITERAL;
+}
+
+// Programa → Funcao FuncaoSeq
 void programa(void){
     if(tokenAtual()->type == FUNCTION) {
         funcao();
@@ -456,12 +520,18 @@ void programa(void){
     }else{
         erroSintatico("FUNCTION");
     }
+    if(tokenAtual()->type != End_Of_File) {
+        erroSintatico("FUNCTION ou fim do arquivo");
+    }
 }
 
+// Funcao → fn NomeFuncao ( ListaParams ) TipoRetornoFuncao Bloco
 void funcao(void){
     casar(FUNCTION);
     if(tokenAtual()->type == ID || tokenAtual()->type == MAIN){
         nomefuncao();
+    }else{
+        erroSintatico("ID ou MAIN");
     }
     casar(LBRACKET);
     if(tokenAtual()->type == ID) {
@@ -469,15 +539,16 @@ void funcao(void){
     }
     casar(RBRACKET);
     if(tokenAtual()->type == ARROW) {
-        TipoRetornoFuncao();
+        tiporetornofuncao();
     }
     if(tokenAtual()->type == LBRACE) {
-        Bloco();
+        bloco();
     }else{
         erroSintatico("LBRACE");
     }
 }
 
+// ListaParams → ID : Type ListaParams2 | ε   
 void listaparams(void){
     casar(ID);
     casar(COLON);
@@ -491,6 +562,7 @@ void listaparams(void){
     }
 }
 
+// ListaParams2 → , ID : Type ListaParams2 | ε
 void listaparams2(void){
     casar(COMMA);
     casar(ID);
@@ -505,6 +577,7 @@ void listaparams2(void){
     }
 }
 
+// Type → int | float | char
 void type(void){
     if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
         casar(tokenAtual()->type);
@@ -513,6 +586,7 @@ void type(void){
     }
 }
 
+// NomeFuncao → ID | MAIN
 void nomefuncao(void){
     if(tokenAtual()->type == ID) {
         casar(ID);
@@ -523,12 +597,386 @@ void nomefuncao(void){
     }
 }
 
+// FuncaoSeq → Funcao FuncaoSeq | ε
 void funcaoseq(void){
     if(tokenAtual()->type == FUNCTION) {
         funcao();
         funcaoseq();
     }
 }
+
+// TipoRetornoFuncao → -> Type | ε   
+void tiporetornofuncao(void){
+    casar(ARROW);
+    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
+        type();
+    }else{
+        erroSintatico("INT, FLOAT ou CHAR");
+    }
+}
+
+// Bloco → { Sequencia }
+void bloco(void){
+    casar(LBRACE);
+    sequencia();
+    if(tokenAtual()->type == RBRACE) {
+        casar(RBRACE);
+    }else{
+        erroSintatico("LET, ID, IF, LBRACE, WHILE, PRINTLN, RETURN ou RBRACE");
+    }
+}
+
+// Sequencia → Declaracao Sequencia | Comando Sequencia | ε
+void sequencia(void){
+    if(tokenAtual()->type == LET) {
+        declaracao();
+        sequencia();
+    }else if(firstComando()) {
+        comando();
+        sequencia();
+    }
+}
+
+// Declaracao → let VarList : Type ;
+void declaracao(void){
+    casar(LET);
+    if(tokenAtual()->type == ID) {
+        varlist();
+    }else{
+        erroSintatico("ID");
+    }
+    casar(COLON);
+    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
+        type();
+    }else{
+        erroSintatico("INT, FLOAT ou CHAR");
+    }
+    casar(SEMICOLON);
+}
+
+// VarList → ID VarList2
+void varlist(void){
+    casar(ID);
+    if(tokenAtual()->type == COMMA) {
+        varlist2();
+    }
+}
+
+// VarList2 → , ID VarList2 | ε
+void varlist2(void){
+    casar(COMMA);
+    casar(ID);
+    if(tokenAtual()->type == COMMA) {
+        varlist2();
+    }
+}
+
+// Comando → ID AtribuicaoOuChamada
+//         | ComandoSe
+//         | while Expr Bloco
+//         | println ( FMT_STRING , ListaArgs ) ;
+//         | return Expr ;
+void comando(void){
+    if(tokenAtual()->type == ID) {
+        casar(ID);
+        if(tokenAtual()->type == ASSIGN || tokenAtual()->type == LBRACKET) {
+            atribuicaoouchamada();
+        }else{
+            erroSintatico("ASSIGN ou LBRACKET");
+        }
+    }else if(tokenAtual()->type == IF || tokenAtual()->type == LBRACE) {
+        comandose();
+    }else if(tokenAtual()->type == WHILE) {
+        casar(WHILE);
+        if(firstExpr()) {
+            expr();
+        }else{
+            erroSintatico(ESPERADO_EXPR);
+        }
+        if(tokenAtual()->type == LBRACE) {
+            bloco();
+        }else{
+            erroSintatico("LBRACE");
+        }
+    }else if(tokenAtual()->type == PRINTLN) {
+        casar(PRINTLN);
+        casar(LBRACKET);
+        casar(FMT_STRING);
+        casar(COMMA);
+        if(firstArg()) {
+            listaargs();
+        }
+        casar(RBRACKET);
+        casar(SEMICOLON);
+    }else if(tokenAtual()->type == RETURN) {
+        casar(RETURN);
+        if(firstExpr()) {
+            expr();
+        }else{
+            erroSintatico(ESPERADO_EXPR);
+        }
+        casar(SEMICOLON);
+    }else{
+        erroSintatico("ID, IF, LBRACE, WHILE, PRINTLN ou RETURN");
+    }
+}
+
+// AtribuicaoOuChamada → = Expr ; | ( ListaArgs ) ;
+void atribuicaoouchamada(void){
+    if(tokenAtual()->type == ASSIGN) {
+        casar(ASSIGN);
+        if(firstExpr()) {
+            expr();
+        }else{
+            erroSintatico(ESPERADO_EXPR);
+        }
+        casar(SEMICOLON);
+    }else if(tokenAtual()->type == LBRACKET) {
+        casar(LBRACKET);
+        if(firstArg()) {
+            listaargs();
+        }
+        casar(RBRACKET);
+        casar(SEMICOLON);
+    }else{
+        erroSintatico("ASSIGN ou LBRACKET");
+    }
+}
+
+// ComandoSe → if Expr Bloco ComandoSenao | Bloco
+void comandose(void){
+    if(tokenAtual()->type == IF) {
+        casar(IF);
+        if(firstExpr()) {
+            expr();
+        }else{
+            erroSintatico(ESPERADO_EXPR);
+        }
+        if(tokenAtual()->type == LBRACE) {
+            bloco();
+        }else{
+            erroSintatico("LBRACE");
+        }
+        if(tokenAtual()->type == ELSE) {
+            comandosenao();
+        }
+    }else if(tokenAtual()->type == LBRACE) {
+        bloco();
+    }else{
+        erroSintatico("IF ou LBRACE");
+    }
+}
+
+// ComandoSenao → else ComandoSe | ε
+void comandosenao(void){
+    casar(ELSE);
+    if(tokenAtual()->type == IF || tokenAtual()->type == LBRACE) {
+        comandose();
+    }else{
+        erroSintatico("IF ou LBRACE");
+    }
+}
+
+// Expr → Rel ExprOpc
+void expr(void){
+    rel();
+    if(tokenAtual()->type == EQ || tokenAtual()->type == NE) {
+        expropc();
+    }
+}
+
+// ExprOpc → OpIgual Rel ExprOpc | ε
+void expropc(void){
+    opigual();
+    if(firstExpr()) {
+        rel();
+    }else{
+        erroSintatico(ESPERADO_EXPR);
+    }
+    if(tokenAtual()->type == EQ || tokenAtual()->type == NE) {
+        expropc();
+    }
+}
+
+// OpIgual → == | !=
+void opigual(void){
+    if(tokenAtual()->type == EQ || tokenAtual()->type == NE) {
+        casar(tokenAtual()->type);
+    }else{
+        erroSintatico("EQ ou NE");
+    }
+}
+
+// Rel → Adicao RelOpc
+void rel(void){
+    adicao();
+    if(tokenAtual()->type == LT || tokenAtual()->type == LE || tokenAtual()->type == GT || tokenAtual()->type == GE) {
+        relopc();
+    }
+}
+
+// RelOpc → OpRel Adicao RelOpc | ε
+void relopc(void){
+    oprel();
+    if(firstExpr()) {
+        adicao();
+    }else{
+        erroSintatico(ESPERADO_EXPR);
+    }
+    if(tokenAtual()->type == LT || tokenAtual()->type == LE || tokenAtual()->type == GT || tokenAtual()->type == GE) {
+        relopc();
+    }
+}
+
+// OpRel → < | <= | > | >=
+void oprel(void){
+    if(tokenAtual()->type == LT || tokenAtual()->type == LE || tokenAtual()->type == GT || tokenAtual()->type == GE) {
+        casar(tokenAtual()->type);
+    }else{
+        erroSintatico("LT, LE, GT ou GE");
+    }
+}
+
+// Adicao → Termo AdicaoOpc
+void adicao(void){
+    termo();
+    if(tokenAtual()->type == PLUS || tokenAtual()->type == MINUS) {
+        adicaoopc();
+    }
+}
+
+// AdicaoOpc → OpAdicao Termo AdicaoOpc | ε
+void adicaoopc(void){
+    opadicao();
+    if(firstExpr()) {
+        termo();
+    }else{
+        erroSintatico(ESPERADO_EXPR);
+    }
+    if(tokenAtual()->type == PLUS || tokenAtual()->type == MINUS) {
+        adicaoopc();
+    }
+}
+
+// OpAdicao → + | -
+void opadicao(void){
+    if(tokenAtual()->type == PLUS || tokenAtual()->type == MINUS) {
+        casar(tokenAtual()->type);
+    }else{
+        erroSintatico("PLUS ou MINUS");
+    }
+}
+
+// Termo → Fator TermoOpc
+void termo(void){
+    fator();
+    if(tokenAtual()->type == MULT || tokenAtual()->type == DIV) {
+        termoopc();
+    }
+}
+
+// TermoOpc → OpMult Fator TermoOpc | ε
+void termoopc(void){
+    opmult();
+    if(firstExpr()) {
+        fator();
+    }else{
+        erroSintatico(ESPERADO_EXPR);
+    }
+    if(tokenAtual()->type == MULT || tokenAtual()->type == DIV) {
+        termoopc();
+    }
+}
+
+// OpMult → * | /
+void opmult(void){
+    if(tokenAtual()->type == MULT || tokenAtual()->type == DIV) {
+        casar(tokenAtual()->type);
+    }else{
+        erroSintatico("MULT ou DIV");
+    }
+}
+
+// Fator → ID ChamadaFuncao | INT_CONST | FLOAT_CONST | CHAR_LITERAL | ( Expr )
+void fator(void){
+    if(tokenAtual()->type == ID) {
+        casar(ID);
+        if(tokenAtual()->type == LBRACKET) {
+            chamadafuncao();
+        }
+    }else if(tokenAtual()->type == INT_CONST) {
+        casar(INT_CONST);
+    }else if(tokenAtual()->type == FLOAT_CONST) {
+        casar(FLOAT_CONST);
+    }else if(tokenAtual()->type == CHAR_LITERAL) {
+        casar(CHAR_LITERAL);
+    }else if(tokenAtual()->type == LBRACKET) {
+        casar(LBRACKET);
+        if(firstExpr()) {
+            expr();
+        }else{
+            erroSintatico(ESPERADO_EXPR);
+        }
+        casar(RBRACKET);
+    }else{
+        erroSintatico(ESPERADO_EXPR);
+    }
+}
+
+// ChamadaFuncao → ( ListaArgs ) | ε
+void chamadafuncao(void){
+    casar(LBRACKET);
+    if(firstArg()) {
+        listaargs();
+    }
+    casar(RBRACKET);
+}
+
+// ListaArgs → Arg ListaArgs2 | ε
+void listaargs(void){
+    arg();
+    if(tokenAtual()->type == COMMA) {
+        listaargs2();
+    }
+}
+
+// ListaArgs2 → , Arg ListaArgs2 | ε
+void listaargs2(void){
+    casar(COMMA);
+    if(firstArg()) {
+        arg();
+    }else{
+        erroSintatico(ESPERADO_ARG);
+    }
+    if(tokenAtual()->type == COMMA) {
+        listaargs2();
+    }
+}
+
+// Arg → ID ChamadaFuncao | INT_CONST | FLOAT_CONST | CHAR_LITERAL
+void arg(void){
+    if(tokenAtual()->type == ID) {
+        casar(ID);
+        if(tokenAtual()->type == LBRACKET) {
+            chamadafuncao();
+        }
+    }else if(tokenAtual()->type == INT_CONST) {
+        casar(INT_CONST);
+    }else if(tokenAtual()->type == FLOAT_CONST) {
+        casar(FLOAT_CONST);
+    }else if(tokenAtual()->type == CHAR_LITERAL) {
+        casar(CHAR_LITERAL);
+    }else{
+        erroSintatico(ESPERADO_ARG);
+    }
+}
+
+/*
+##########################################################
+    TABELA DE SÍMBOLOS
+##########################################################
+*/
+
 
 /*
 ##########################################################
@@ -576,8 +1024,9 @@ int main(){
     // Análise sintática
     FILE *arquivoErros = fopen("saida_erros_sintaticos.txt", "w");
     iniciarParser(vetorTokens, index, arquivoErros);
+    programa();   // se houver erro sintático, o erroSintatico() encerra o programa aqui dentro
 
- 
+
     if (arquivoErros) {
         fprintf(arquivoErros, "Nenhum erro sintático encontrado.\n");
         fclose(arquivoErros);
