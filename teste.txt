@@ -1,15 +1,16 @@
-fn maior(a: int, b: int) -> int {
+fn maior(a: int, b: int, c: int) -> int {
     let m: int;
     m = a;
     if b > m {
         m = b;
     }
-    return m;
+    return c;
 }
 
 fn main() {
-    let x, y: int;
+    let x, y, z: int;
     x = 10;
     y = 20;
-    println("{}", maior(x,y));
+    z = 30;
+    println("{}", maior(x,y,z));
 }

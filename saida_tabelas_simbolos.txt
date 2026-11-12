@@ -1,0 +1,27 @@
+==================================================================
+Tabela de símbolos da função: maior
+ret_type(maior) = int
+------------------------------------------------------------------
+chave        name         datatype  is_param  pos_param  call_refs
+a            a            int       true      0          NULL
+b            b            int       true      1          NULL
+c            c            int       true      2          NULL
+m            m            int       false     -1         NULL
+
+FunctionRegister das chamadas feitas em maior:
+  (nenhuma chamada)
+
+==================================================================
+Tabela de símbolos da função: main
+ret_type(main) = void
+------------------------------------------------------------------
+chave        name         datatype  is_param  pos_param  call_refs
+x            x            float     false     -1         NULL
+y            y            float     false     -1         NULL
+z            z            float     false     -1         NULL
+println      println      void      false     -1         NULL
+maior        maior        int       false     -1         FunctionRegister #1
+
+FunctionRegister das chamadas feitas em main:
+  #1  name = maior | num_args = 3 | args = [x, y, z]
+

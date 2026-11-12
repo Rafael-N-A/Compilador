@@ -2,6 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 /*
 ##########################################################
@@ -383,6 +384,335 @@ const char* nomeToken(TokenType t) {
 
 /*
 ##########################################################
+    TABELA DE SÍMBOLOS
+##########################################################
+*/
+
+// Definida na seção da análise semântica
+void erroSemantico(Token *token, const char *mensagem);
+
+typedef enum {
+    DATA_ERROR = -1,
+    DATA_INT,
+    DATA_FLOAT,
+    DATA_CHAR,
+    DATA_VOID
+}DataTypes;
+
+DataTypes tipoDoToken(TokenType t){
+    switch(t){
+        case INT:
+        case INT_CONST:
+            return DATA_INT;
+        case FLOAT:
+        case FLOAT_CONST:
+            return DATA_FLOAT;
+        case CHAR:
+        case CHAR_LITERAL:
+            return DATA_CHAR;
+        default:
+            return DATA_ERROR;
+    }
+}
+ 
+#define MAX_ARGS 32
+ 
+typedef struct FunctionRegister {
+    char name[128];                  // nome da função chamada
+    int line;                        // linha da chamada (para as mensagens de erro)
+    int num_args;
+    char args[MAX_ARGS][128];        // lexema de cada argumento
+    struct FunctionRegister *prox;   // próxima chamada da mesma tabela
+} FunctionRegister;
+ 
+typedef struct Simbolo {
+    char name[128];                  // chave (lexema)
+    DataTypes datatype;
+    int is_param;
+    int pos_param;                   // -1 para variável local
+    FunctionRegister **call_refs;    // ponteiros para as chamadas desta função (NULL se não houver)
+    int num_refs;
+    struct Simbolo *prox;
+} Simbolo;
+ 
+typedef struct TabelaSimbolos {
+    char nomeFuncao[128];
+    DataTypes ret_type;              // DATA_VOID se não tiver "-> Type"
+    Simbolo *simbolos;               // variáveis, parâmetros e funções chamadas
+    FunctionRegister *chamadas;      // todas as chamadas, na ordem em que aparecem
+    struct TabelaSimbolos *prox;     // tabela da próxima função
+} TabelaSimbolos;
+
+static TabelaSimbolos *listaTabelas = NULL;   // Primeira tabela da lista (uma por função, na ordem do código)
+static TabelaSimbolos *tabelaAtual = NULL;    // Tabela Atual
+ 
+// Cria a tabela de uma nova função e coloca na lista de tabelas.
+TabelaSimbolos *abrirEscopo(const char *nomeFuncao){
+    TabelaSimbolos *nova = malloc(sizeof(TabelaSimbolos));
+    if(nova == NULL) {
+        fprintf(stderr, "Erro: memória insuficiente para criar a tabela de símbolos\n");
+        exit(1);
+    }
+ 
+    strncpy(nova->nomeFuncao, nomeFuncao, sizeof(nova->nomeFuncao) - 1);
+    nova->nomeFuncao[sizeof(nova->nomeFuncao) - 1] = '\0';
+    nova->ret_type = DATA_VOID;
+    nova->simbolos = NULL;
+    nova->chamadas = NULL;
+    nova->prox = NULL;
+ 
+    if(listaTabelas == NULL) {
+        listaTabelas = nova;
+    }else{
+        TabelaSimbolos *t = listaTabelas;
+        while(t->prox != NULL) {
+            t = t->prox;
+        }
+        t->prox = nova;
+    }
+ 
+    tabelaAtual = nova;
+    return nova;
+}
+ 
+// Fechar tabela
+void fecharEscopo(void){
+    tabelaAtual = NULL;
+}
+
+TabelaSimbolos *buscarTabela(const char *nomeFuncao){
+    TabelaSimbolos *t = listaTabelas;
+    while(t != NULL) {
+        if(strcmp(t->nomeFuncao, nomeFuncao) == 0) {
+            return t;
+        }
+        t = t->prox;
+    }
+    return NULL;
+}
+ 
+// Buscar simbolo na tabela atual
+Simbolo *buscarSimbolo(TabelaSimbolos *tabela, const char *name){
+    if(tabela == NULL) {
+        return NULL;
+    }
+ 
+    Simbolo *s = tabela->simbolos;
+    while(s != NULL) {
+        if(strcmp(s->name, name) == 0) {
+            return s;
+        }
+        s = s->prox;
+    }
+    return NULL;
+}
+ 
+// Inserir simbolo na tabela atual
+Simbolo *inserir(TabelaSimbolos *tabela, const char *name, DataTypes datatype, int is_param, int pos_param){
+    if(buscarSimbolo(tabela, name) != NULL) {
+        return NULL;
+    }
+ 
+    Simbolo *novo = malloc(sizeof(Simbolo));
+    if(novo == NULL) {
+        fprintf(stderr, "Erro: memória insuficiente para inserir na tabela de símbolos\n");
+        exit(1);
+    }
+
+
+    strncpy(novo->name, name, sizeof(novo->name) - 1);
+    novo->name[sizeof(novo->name) - 1] = '\0';
+    novo->datatype = datatype;
+    novo->is_param = is_param;
+    novo->pos_param = pos_param;
+    novo->call_refs = NULL;
+    novo->num_refs = 0;
+    novo->prox = NULL;
+ 
+    if(tabela->simbolos == NULL) {
+        tabela->simbolos = novo;
+    }else{
+        Simbolo *s = tabela->simbolos;
+        while(s->prox != NULL) {
+            s = s->prox;
+        }
+        s->prox = novo;
+    }
+    return novo;
+}
+
+// Simplificar a inserção de simbolos
+Simbolo *declararSimbolo(Token *id, DataTypes tipo, int is_param, int pos_param){
+    Simbolo *s = inserir(tabelaAtual, id->lexeme, tipo, is_param, pos_param);
+    if(s == NULL) {
+        erroSemantico(id, "variável já declarada");
+    }
+    return s;
+}
+
+// FunctionRegister
+
+FunctionRegister *registrarChamada(TabelaSimbolos *tabela, Token *nomeChamada){
+    FunctionRegister *reg = malloc(sizeof(FunctionRegister));
+    if(reg == NULL) {
+        fprintf(stderr, "Erro: memória insuficiente para registrar a chamada\n");
+        exit(1);
+    }
+    strncpy(reg->name, nomeChamada->lexeme, sizeof(reg->name) - 1);
+    reg->name[sizeof(reg->name) - 1] = '\0';
+    reg->line = nomeChamada->line;
+    reg->num_args = 0;
+    reg->prox = NULL;
+
+    // Adiciona no final
+    if(tabela->chamadas == NULL) {
+        tabela->chamadas = reg;
+    }else{
+        FunctionRegister *r = tabela->chamadas;
+        while(r->prox != NULL) {
+            r = r->prox;
+        }
+        r->prox = reg;
+    }
+
+    // Adiciona chamada na tabela de símbolos da função atual
+    Simbolo *s = buscarSimbolo(tabela, nomeChamada->lexeme);
+    if(s == NULL) {
+        TabelaSimbolos *chamada = buscarTabela(nomeChamada->lexeme);
+        if(chamada == NULL) {
+            erroSemantico(nomeChamada, "função chamada antes de ser definida");
+        }
+        s = inserir(tabela, nomeChamada->lexeme, chamada->ret_type, 0, -1);
+    }else if(s->num_refs == 0) {
+        erroSemantico(nomeChamada, "variável não pode ser chamada como função");
+    }
+
+    // call_refs aponta para o registro
+    FunctionRegister **refs = realloc(s->call_refs, (s->num_refs + 1) * sizeof(FunctionRegister *));
+    if(refs == NULL) {
+        fprintf(stderr, "Erro: memória insuficiente para registrar a chamada\n");
+        exit(1);
+    }
+    s->call_refs = refs;
+    s->call_refs[s->num_refs] = reg;
+    s->num_refs++;
+
+    return reg;
+}
+
+void adicionarArgumento(FunctionRegister *reg, Token *arg){
+    strncpy(reg->args[reg->num_args], arg->lexeme, sizeof(reg->args[0]) - 1);
+    reg->args[reg->num_args][sizeof(reg->args[0]) - 1] = '\0';
+    reg->num_args++;
+}
+
+void inserirPrint(void){
+    if(buscarSimbolo(tabelaAtual, "println") == NULL) {
+        inserir(tabelaAtual, "println", DATA_VOID, 0, -1);
+    }
+}
+
+// Armazenar tabelas no arquivo de saída
+
+const char *nomeDataType(DataTypes d){
+    switch(d){
+        case DATA_INT: return "int";
+        case DATA_FLOAT: return "float";
+        case DATA_CHAR: return "char";
+        case DATA_VOID: return "void";
+        default: return "error";
+    }
+}
+
+int numeroDaChamada(TabelaSimbolos *tabela, FunctionRegister *reg){
+    int n = 1;
+    FunctionRegister *r = tabela->chamadas;
+    while(r != NULL && r != reg) {
+        r = r->prox;
+        n++;
+    }
+    return n;
+}
+
+void imprimirTabelas(FILE *arquivo){
+    TabelaSimbolos *t = listaTabelas;
+    while(t != NULL) {
+        fprintf(arquivo, "==================================================================\n");
+        fprintf(arquivo, "Tabela de símbolos da função: %s\n", t->nomeFuncao);
+        fprintf(arquivo, "ret_type(%s) = %s\n", t->nomeFuncao, nomeDataType(t->ret_type));
+        fprintf(arquivo, "------------------------------------------------------------------\n");
+        fprintf(arquivo, "%-12s %-12s %-9s %-9s %-10s %s\n",
+                "chave", "name", "datatype", "is_param", "pos_param", "call_refs");
+
+        Simbolo *s = t->simbolos;
+        if(s == NULL) {
+            fprintf(arquivo, "(tabela vazia)\n");
+        }
+        while(s != NULL) {
+            fprintf(arquivo, "%-12s %-12s %-9s %-9s %-10d ",
+                    s->name, s->name, nomeDataType(s->datatype),
+                    s->is_param ? "true" : "false", s->pos_param);
+            if(s->num_refs == 0) {
+                fprintf(arquivo, "NULL\n");
+            }else{
+                // cada referência aponta para um FunctionRegister da lista abaixo
+                for(int i = 0; i < s->num_refs; i++) {
+                    fprintf(arquivo, "%sFunctionRegister #%d", i > 0 ? ", " : "", numeroDaChamada(t, s->call_refs[i]));
+                }
+                fprintf(arquivo, "\n");
+            }
+            s = s->prox;
+        }
+
+        fprintf(arquivo, "\nFunctionRegister das chamadas feitas em %s:\n", t->nomeFuncao);
+        if(t->chamadas == NULL) {
+            fprintf(arquivo, "  (nenhuma chamada)\n");
+        }
+        int n = 1;
+        FunctionRegister *r = t->chamadas;
+        while(r != NULL) {
+            fprintf(arquivo, "  #%d  name = %s | num_args = %d | args = [", n, r->name, r->num_args);
+            for(int i = 0; i < r->num_args; i++) {
+                fprintf(arquivo, "%s%s", i > 0 ? ", " : "", r->args[i]);
+            }
+            fprintf(arquivo, "]\n");
+            r = r->prox;
+            n++;
+        }
+        fprintf(arquivo, "\n");
+        t = t->prox;
+    }
+}
+
+// Free em todas as tabelas
+void liberarTabelas(void){
+    TabelaSimbolos *t = listaTabelas;
+    while(t != NULL) {
+        Simbolo *s = t->simbolos;
+        while(s != NULL) {
+            Simbolo *proxSimbolo = s->prox;
+            free(s->call_refs);   // só o vetor de ponteiros: os registros são liberados abaixo
+            free(s);
+            s = proxSimbolo;
+        }
+
+        FunctionRegister *r = t->chamadas;
+        while(r != NULL) {
+            FunctionRegister *proxRegistro = r->prox;
+            free(r);
+            r = proxRegistro;
+        }
+
+        TabelaSimbolos *proxTabela = t->prox;
+        free(t);
+        t = proxTabela;
+    }
+    listaTabelas = NULL;
+    tabelaAtual = NULL;
+}
+
+/*
+##########################################################
     ANALISADOR SINTÁTICO
 ##########################################################
 */
@@ -449,23 +779,26 @@ Token *casar(TokenType esperado) {
 
 // Descida Recursiva
 
-// Declaração das funções correspondentes a cada produção da gramática
+// Registro da chamada 
+static FunctionRegister *registroAtual = NULL;
+
+// Declaração das funções produções
 
 void programa(void);
 void funcaoseq(void);
 void funcao(void);
 void nomefuncao(void);
 void listaparams(void);
-void listaparams2(void);
-void tiporetornofuncao(void);
+void listaparams2(int pos);
+DataTypes tiporetornofuncao(void);
 void bloco(void);
 void sequencia(void);
 void declaracao(void);
-void varlist(void);
+Simbolo *varlist(void);
 void varlist2(void);
-void type(void);
+DataTypes type(void);
 void comando(void);
-void atribuicaoouchamada(void);
+void atribuicaoouchamada(Token *id);
 void comandose(void);
 void comandosenao(void);
 void expr(void);
@@ -481,7 +814,7 @@ void termo(void);
 void termoopc(void);
 void opmult(void);
 void fator(void);
-void chamadafuncao(void);
+void chamadafuncao(Token *nome);
 void listaargs(void);
 void listaargs2(void);
 void arg(void);
@@ -529,7 +862,7 @@ void programa(void){
 void funcao(void){
     casar(FUNCTION);
     if(tokenAtual()->type == ID || tokenAtual()->type == MAIN){
-        nomefuncao();
+        nomefuncao();   // abre o escopo (tabela de símbolos) 
     }else{
         erroSintatico("ID ou MAIN");
     }
@@ -539,62 +872,72 @@ void funcao(void){
     }
     casar(RBRACKET);
     if(tokenAtual()->type == ARROW) {
-        tiporetornofuncao();
+        tabelaAtual->ret_type = tiporetornofuncao();  
     }
     if(tokenAtual()->type == LBRACE) {
         bloco();
     }else{
         erroSintatico("LBRACE");
     }
+    // Fim do escopo (fecha tabela de símbolos)
+    fecharEscopo();
 }
 
 // ListaParams → ID : Type ListaParams2 | ε   
 void listaparams(void){
-    casar(ID);
+    Token *id = casar(ID);
     casar(COLON);
+    DataTypes tipo = DATA_ERROR;
     if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
-        type();
+        tipo = type();
     }else{
         erroSintatico("INT, FLOAT ou CHAR");
     }
+    declararSimbolo(id, tipo, 1, 0);   // primeiro pos_param = 0
     if(tokenAtual()->type == COMMA) {
-        listaparams2();
+        listaparams2(1);
     }
 }
 
 // ListaParams2 → , ID : Type ListaParams2 | ε
-void listaparams2(void){
+void listaparams2(int pos){
     casar(COMMA);
-    casar(ID);
+    Token *id = casar(ID);
     casar(COLON);
+    DataTypes tipo = DATA_ERROR;
     if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
-        type();
+        tipo = type();
     }else{
         erroSintatico("INT, FLOAT ou CHAR");
     }
+    // Atualizar a posição do parametro
+    declararSimbolo(id, tipo, 1, pos);
     if(tokenAtual()->type == COMMA) {
-        listaparams2();
+        listaparams2(pos + 1);
     }
 }
 
 // Type → int | float | char
-void type(void){
-    if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
-        casar(tokenAtual()->type);
-    }else{
-        erroSintatico("INT, FLOAT ou CHAR");
-    }
+DataTypes type(void){
+    Token *t = casar(tokenAtual()->type);
+    return tipoDoToken(t->type);   
 }
 
 // NomeFuncao → ID | MAIN
+// Abre o escopo da função (cria a tabela)
 void nomefuncao(void){
+    Token *nome = NULL;
     if(tokenAtual()->type == ID) {
-        casar(ID);
+        nome = casar(ID);
     }else if(tokenAtual()->type == MAIN) {
-        casar(MAIN);
+        nome = casar(MAIN);
     }else{
         erroSintatico("ID ou MAIN");
     }
+    if(buscarTabela(nome->lexeme) != NULL) {
+        erroSemantico(nome, "função definida mais de uma vez");
+    }
+    abrirEscopo(nome->lexeme);
 }
 
 // FuncaoSeq → Funcao FuncaoSeq | ε
@@ -606,13 +949,15 @@ void funcaoseq(void){
 }
 
 // TipoRetornoFuncao → -> Type | ε   
-void tiporetornofuncao(void){
+// Devolve o tipo de retorno da função
+DataTypes tiporetornofuncao(void){
     casar(ARROW);
     if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
-        type();
+        return type();
     }else{
         erroSintatico("INT, FLOAT ou CHAR");
     }
+    return DATA_ERROR;
 }
 
 // Bloco → { Sequencia }
@@ -639,33 +984,47 @@ void sequencia(void){
 
 // Declaracao → let VarList : Type ;
 void declaracao(void){
+    Simbolo *primeira = NULL;
     casar(LET);
     if(tokenAtual()->type == ID) {
-        varlist();
+        primeira = varlist();
     }else{
         erroSintatico("ID");
     }
     casar(COLON);
+    DataTypes tipo = DATA_ERROR;
     if(tokenAtual()->type == INT || tokenAtual()->type == FLOAT || tokenAtual()->type == CHAR) {
-        type();
+        tipo = type();
     }else{
         erroSintatico("INT, FLOAT ou CHAR");
     }
+
+    // Prencher o tipo nas variaveis da lista
+    Simbolo *s = primeira;
+    while(s != NULL) {
+        s->datatype = tipo;
+        s = s->prox;
+    }
+
     casar(SEMICOLON);
 }
 
 // VarList → ID VarList2
-void varlist(void){
-    casar(ID);
+// Devolve o símbolo da primeira variável da lista.
+Simbolo *varlist(void){
+    Token *id = casar(ID);
+    Simbolo *primeira = declararSimbolo(id, DATA_ERROR, 0, -1);
     if(tokenAtual()->type == COMMA) {
         varlist2();
     }
+    return primeira;
 }
 
 // VarList2 → , ID VarList2 | ε
 void varlist2(void){
     casar(COMMA);
-    casar(ID);
+    Token *id = casar(ID);
+    declararSimbolo(id, DATA_ERROR, 0, -1);
     if(tokenAtual()->type == COMMA) {
         varlist2();
     }
@@ -678,9 +1037,9 @@ void varlist2(void){
 //         | return Expr ;
 void comando(void){
     if(tokenAtual()->type == ID) {
-        casar(ID);
+        Token *id = casar(ID);
         if(tokenAtual()->type == ASSIGN || tokenAtual()->type == LBRACKET) {
-            atribuicaoouchamada();
+            atribuicaoouchamada(id);
         }else{
             erroSintatico("ASSIGN ou LBRACKET");
         }
@@ -700,6 +1059,7 @@ void comando(void){
         }
     }else if(tokenAtual()->type == PRINTLN) {
         casar(PRINTLN);
+        inserirPrint();   // entra na tabela 
         casar(LBRACKET);
         casar(FMT_STRING);
         casar(COMMA);
@@ -722,7 +1082,7 @@ void comando(void){
 }
 
 // AtribuicaoOuChamada → = Expr ; | ( ListaArgs ) ;
-void atribuicaoouchamada(void){
+void atribuicaoouchamada(Token *id){
     if(tokenAtual()->type == ASSIGN) {
         casar(ASSIGN);
         if(firstExpr()) {
@@ -732,11 +1092,14 @@ void atribuicaoouchamada(void){
         }
         casar(SEMICOLON);
     }else if(tokenAtual()->type == LBRACKET) {
+        // Chamada de função
+        registroAtual = registrarChamada(tabelaAtual, id);
         casar(LBRACKET);
         if(firstArg()) {
             listaargs();
         }
         casar(RBRACKET);
+        registroAtual = NULL;   // fim da lista de argumentos desta chamada
         casar(SEMICOLON);
     }else{
         erroSintatico("ASSIGN ou LBRACKET");
@@ -900,9 +1263,9 @@ void opmult(void){
 // Fator → ID ChamadaFuncao | INT_CONST | FLOAT_CONST | CHAR_LITERAL | ( Expr )
 void fator(void){
     if(tokenAtual()->type == ID) {
-        casar(ID);
+        Token *id = casar(ID);
         if(tokenAtual()->type == LBRACKET) {
-            chamadafuncao();
+            chamadafuncao(id);
         }
     }else if(tokenAtual()->type == INT_CONST) {
         casar(INT_CONST);
@@ -924,12 +1287,15 @@ void fator(void){
 }
 
 // ChamadaFuncao → ( ListaArgs ) | ε
-void chamadafuncao(void){
+void chamadafuncao(Token *nome){
+    FunctionRegister *anterior = registroAtual;
+    registroAtual = registrarChamada(tabelaAtual, nome);
     casar(LBRACKET);
     if(firstArg()) {
         listaargs();
     }
     casar(RBRACKET);
+    registroAtual = anterior;   // terminou a lista de argumentos desta chamada
 }
 
 // ListaArgs → Arg ListaArgs2 | ε
@@ -955,10 +1321,11 @@ void listaargs2(void){
 
 // Arg → ID ChamadaFuncao | INT_CONST | FLOAT_CONST | CHAR_LITERAL
 void arg(void){
+    Token *t = tokenAtual();   // Lexema vai pro FunctionRegister
     if(tokenAtual()->type == ID) {
         casar(ID);
         if(tokenAtual()->type == LBRACKET) {
-            chamadafuncao();
+            chamadafuncao(t);
         }
     }else if(tokenAtual()->type == INT_CONST) {
         casar(INT_CONST);
@@ -969,15 +1336,31 @@ void arg(void){
     }else{
         erroSintatico(ESPERADO_ARG);
     }
+    // Para o caso do println
+    if(registroAtual != NULL) {
+        adicionarArgumento(registroAtual, t);
+    }
 }
 
 /*
 ##########################################################
-    TABELA DE SÍMBOLOS
+    ANALISE SEMÂNTICA
 ##########################################################
 */
 
+void erroSemantico(Token *token, const char *mensagem){
+    char texto[512];
+    snprintf(texto, sizeof(texto), "Erro semântico na linha %d: %s: '%s'",
+             token->line, mensagem, token->lexeme);
 
+    FILE *arquivo = fopen("saida_erros_semanticos.txt", "w");
+    if(arquivo) {
+        fprintf(arquivo, "%s\n", texto);
+        fclose(arquivo);
+    }
+    fprintf(stderr, "%s\nCompilação interrompida.\n", texto);
+    exit(1);
+}
 /*
 ##########################################################
     MAIN
@@ -993,12 +1376,9 @@ int main(){
     Token vetorTokens[MAX_TOKENS];
     int index = 0;
  
+    // Analise Lexica
     while((token = nextToken(file)).type != End_Of_File && index < MAX_TOKENS - 1) {
         vetorTokens[index++] = token;
-        printf("Token: %s, Lexema: %s, Linha: %d\n",
-        nomeToken(token.type),
-        token.lexeme,
-        token.line);
     }
  
     printf("Total de tokens: %d\n", index);
@@ -1024,13 +1404,22 @@ int main(){
     // Análise sintática
     FILE *arquivoErros = fopen("saida_erros_sintaticos.txt", "w");
     iniciarParser(vetorTokens, index, arquivoErros);
-    programa();   // se houver erro sintático, o erroSintatico() encerra o programa aqui dentro
+    programa();
 
 
     if (arquivoErros) {
         fprintf(arquivoErros, "Nenhum erro sintático encontrado.\n");
         fclose(arquivoErros);
     }
+
+    FILE *arquivoTabelas = fopen("saida_tabelas_simbolos.txt", "w");
+    if (arquivoTabelas) {
+        imprimirTabelas(arquivoTabelas);
+        fclose(arquivoTabelas);
+    }
+
+
+    liberarTabelas();
  
     return 0;
 }
