@@ -918,6 +918,7 @@ void listaparams2(int pos){
 }
 
 // Type → int | float | char
+// Devolve o tipo do token (Para a tabela de símbolos)
 DataTypes type(void){
     Token *t = casar(tokenAtual()->type);
     return tipoDoToken(t->type);   
