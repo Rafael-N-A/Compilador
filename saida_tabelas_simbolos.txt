@@ -16,9 +16,9 @@ Tabela de símbolos da função: main
 ret_type(main) = void
 ------------------------------------------------------------------
 chave        name         datatype  is_param  pos_param  call_refs
-x            x            float     false     -1         NULL
-y            y            float     false     -1         NULL
-z            z            float     false     -1         NULL
+x            x            int       false     -1         NULL
+y            y            int       false     -1         NULL
+z            z            int       false     -1         NULL
 println      println      void      false     -1         NULL
 maior        maior        int       false     -1         FunctionRegister #1
 

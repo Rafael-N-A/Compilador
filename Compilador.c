@@ -2,7 +2,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <stdarg.h>
 
 /*
 ##########################################################
@@ -1424,3 +1423,5 @@ int main(){
  
     return 0;
 }
+
+// Como compilar gcc -Wall -Wextra -std=c11 Compilador.c -o compilador
